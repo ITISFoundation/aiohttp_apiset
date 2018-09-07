@@ -42,7 +42,7 @@ def setup_ui(version=VERSION):
         os.makedirs(template_dir)
         with open(template_ui, 'w'):
             return
-    with tempfile.NamedTemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(delete=False) as f:
         with urllib.request.urlopen(URL.format(version)) as r:
             f.write(r.read())
         f.flush()

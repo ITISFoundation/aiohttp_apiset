@@ -9,6 +9,7 @@ from collections.abc import Container, Iterable, Mapping, Sized
 from itertools import chain
 from urllib import parse
 from pathlib import Path
+import json
 
 import yarl
 from aiohttp import hdrs
@@ -621,8 +622,12 @@ async def form_receiver(request):
 
 
 async def json_receiver(request):
+    def _safe_loader(body):
+        if body:
+            return json.loads(body)
+        return dict()
     try:
-        return await request.json()
+        return await request.json(loads=_safe_loader)
     except ValueError as e:
         raise e from None
     except Exception:
