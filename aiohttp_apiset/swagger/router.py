@@ -4,15 +4,16 @@ from collections import Mapping
 from aiohttp import hdrs, web
 
 from . import ui
-from .loader import FileLoader
-from .operations import get_docstring_swagger
-from .route import route_factory, SwaggerRoute
 from .. import dispatcher, utils
 from ..middlewares import JsonEncoder
+from .loader import AllOf, FileLoader, SchemaFile, SchemaPointer
+from .operations import get_docstring_swagger
+from .route import SwaggerRoute, route_factory
 
 
 class SchemaSerializer(JsonEncoder):
     converters = [
+        (0, (AllOf, SchemaFile, SchemaPointer), lambda x: x.data),
         (0, Mapping, dict),
     ]
 
@@ -64,6 +65,9 @@ class SwaggerRouter(dispatcher.TreeUrlDispatcher):
                 spec, self._handler_swagger_spec, name='swagger:spec')
             self.add_get(
                 swagger_ui, self._handler_swagger_ui, name='swagger:ui')
+            self.add_get(
+                swagger_ui + '{filename:.*\.(json|yaml|yml)}',
+                self._handler_file_loader, name='swagger:specs')
             self.add_static(
                 swagger_ui, ui.STATIC_UI, name='swagger:ui:static')
             ui.get_template()  # warm up
@@ -77,6 +81,11 @@ class SwaggerRouter(dispatcher.TreeUrlDispatcher):
                 DeprecationWarning, stacklevel=2)
             self.include(path)
 
+    def _handler_file_loader(self, request):
+        filename = request.match_info['filename']
+        spec = self._file_loader[filename].data
+        return web.json_response(spec, dumps=SchemaSerializer.dumps)
+
     def _handler_swagger_spec(self, request):
         key = request.query.get('spec')
         if key is None and self._swagger_data:
@@ -88,7 +97,11 @@ class SwaggerRouter(dispatcher.TreeUrlDispatcher):
 
         for k in sorted(self._swagger_data, reverse=True):
             if key.startswith(k):
-                spec = self._swagger_data[k].copy()
+                data = self._swagger_data[k]
+                if isinstance(data, SchemaPointer):
+                    spec = data.data.copy()
+                else:
+                    spec = data.copy()
                 break
         else:
             spec = dict(
@@ -111,8 +124,10 @@ class SwaggerRouter(dispatcher.TreeUrlDispatcher):
                 op = r.swagger_operation
                 if op is None:
                     d = None
+                elif isinstance(op, SchemaPointer):
+                    d = op.data
                 else:
-                    d = dict(op)
+                    d = op
             else:
                 d = None
 
@@ -192,7 +207,7 @@ class SwaggerRouter(dispatcher.TreeUrlDispatcher):
 
         for url, methods in data.get('paths', {}).items():
             url = basePath + url
-            methods = methods.copy()
+            methods = dict(methods)
             location_name = methods.pop(self.NAME, None)
             parameters = methods.pop('parameters', [])
             for method, body in methods.items():
@@ -200,7 +215,7 @@ class SwaggerRouter(dispatcher.TreeUrlDispatcher):
                     view = utils.import_obj(body)
                     view.add_routes(self, prefix=url, encoding=self._encoding)
                     continue
-                body = body.copy()
+                body = dict(body)
                 if parameters:
                     body['parameters'] = parameters + \
                                          body.get('parameters', [])
