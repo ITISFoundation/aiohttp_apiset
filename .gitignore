@@ -55,3 +55,7 @@ docs/_build/
 
 # PyBuilder
 target/
+
+aiohttp_apiset/static/
+aiohttp_apiset/templates/
+.vscode/
